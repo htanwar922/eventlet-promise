@@ -119,8 +119,12 @@ class Promise(Thenable):
             for promise_ in promises:
                 promise_ : Promise
                 promise_.waitExecute(promise_.then, lambda x: resolveFunc(x, True))
-            resolveFunc(Promise.allSettled(promises)
-                    .then(lambda _: rejectFunc(Exception('No promises resolved'))))
+            def anyFulfilled(settledValues):
+                for settledValue in settledValues:
+                    if settledValue['status'] == 'fulfilled':
+                        resolveFunc(settledValue['value'], True)
+                return rejectFunc(Exception(f'{Promise.any}: No promises resolved'))
+            Promise.allSettled(promises).then(anyFulfilled)     # safe
         return Promise(executor)
 
     @staticmethod

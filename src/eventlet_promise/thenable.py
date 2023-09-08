@@ -55,7 +55,7 @@ class Thenable(ABC):
             self._reject(TypeError(f'{self.__class__.__name__} resolved with itself'))
             return
         if isinstance(result, Thenable):
-            self.referenceTo(result)
+            self.referenceTo(result, lambda x: x, lambda x: x)
             return
         self._settle('fulfilled', result)
 
@@ -65,6 +65,12 @@ class Thenable(ABC):
         if not _overrideResolved and self.isResolved():
             self._resolveAttached()
             return
+        if reason is self:
+            self._reject(TypeError(f'{self.__class__.__name__} resolved with itself'))
+            return
+        # if isinstance(reason, Thenable):
+        #     self.referenceTo(reason, lambda x: x, lambda x: x)
+        #     return
         self._settle('rejected', reason)
         # raise_(reason)            # disable this to prevent unhandled rejections
 
@@ -78,10 +84,12 @@ class Thenable(ABC):
     def _executeCallbacks(self):
         idx = 0
         while idx < len(self._callbacks):
-            if self._callbacks[idx]():
-                self._callbacks.pop(idx)
-                idx -= 1
-            idx += 1
+            # if self._callbacks[idx]():
+            #     self._callbacks.pop(idx)
+            #     idx -= 1
+            # idx += 1
+            self._callbacks[idx]()
+            self._callbacks.pop(idx)
 
     def _resolveAttached(self):
         if self.isPending() and self.isResolved():
@@ -89,7 +97,7 @@ class Thenable(ABC):
             if self._value.isPending():
                 return
             # wait for the saved promise (the one that self is so attached to) to settle (for someone else?;)
-            Thenable.allSettled([self._value])\
+            self.__class__.allSettled([self._value])\
                 .finally_(lambda x: x[0]['value'] if x[0]['status'] == 'fulfilled' else x[0]['reason'])\
                 .then(lambda x: self._resolve(x, True), lambda x: self._reject(x, True))
             hub.sleep(0)
@@ -106,14 +114,14 @@ class Thenable(ABC):
     def addObservable(self, observable : 'Thenable'):
         self._observables.append(observable)
 
-    def referenceTo(self, thenable : 'Thenable', onFulfilled=None, onRejected=None):
+    def referenceTo(self, thenable : 'Thenable', onFulfilled, onRejected):
         if self.isResolved():   # called from self._resolve before&for resolving (at end of this fn)
             # print(f'Warning: {self} is already resolved to value={self._value}.\
             #     \n Using above value instead of {thenable}.')
             thenable = self._value
         thenable.addCallback(lambda: thenable.then(
-            lambda x: self._resolve(onFulfilled(x), True),
-            lambda x: self._reject(onRejected(x), True)
+            lambda x: self._resolve(onFulfilled(x) if callable(onFulfilled) else x, True) or self._value,
+            lambda x: self._reject(onRejected(x) if callable(onRejected) else x, True) or self._value
         ))
         self._fate = 'resolved'
         self._value = thenable
@@ -142,44 +150,44 @@ class Thenable(ABC):
     @staticmethod
     @abstractmethod
     def resolve(value : Any):
-        raise NotImplementedError()
+        raise NotImplementedError('resolve')
 
     @staticmethod
     @abstractmethod
     def reject(reason : Any):
-        raise NotImplementedError()
+        raise NotImplementedError('reject')
 
     @staticmethod
     @abstractmethod
     def all(promises : List):
-        raise NotImplementedError()
+        raise NotImplementedError('all')
 
     @staticmethod
     @abstractmethod
     def allSettled(promises : List):
-        raise NotImplementedError()
+        raise NotImplementedError('allSettled')
 
     @staticmethod
     @abstractmethod
     def any(promises : List):
-        raise NotImplementedError()
+        raise NotImplementedError('any')
 
     @staticmethod
     @abstractmethod
     def race(promises : List):
-        raise NotImplementedError()
+        raise NotImplementedError('race')
 
     @abstractmethod
     def then(self, onFulfilled : Callable[[Any], Any] = None, onRejected : Callable[[Any], Any] = None):
-        raise NotImplementedError()
+        raise NotImplementedError('then')
 
     @abstractmethod
     def catch(self, onRejected : Callable[[Any], Any] = None):
-        raise NotImplementedError()
+        raise NotImplementedError('catch')
 
     @abstractmethod
     def finally_(self, onFinally : Callable[[Any], Any] = None):
-        raise NotImplementedError()
+        raise NotImplementedError('finally_')
 
     # def __str__(self):
     #     return f"<{__class__.__name__}{self.name, self._state, self._value},\n\t{pf(self._callbacks)}>"
