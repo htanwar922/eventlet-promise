@@ -49,7 +49,8 @@ class Promise(Thenable):
         - Call rejectFunc(reason) side-effect if it fails to complete.
         - Register callbacks to be called when the promise is resolved or rejected.
 
-    This class implements promises which are fulfilled or rejected ASAP.
+    Note: This class implements promises which are fulfilled or rejected ASAP.
+          For JS-like settlement of promises, use `PromiseJS`.
     """
     def __init__(self, executor : Callable[[Callable[[Any], None], Callable[[Any], None]], None]):
         super().__init__()
@@ -215,6 +216,7 @@ if __name__ == '__main__':
     print('\nFinished\n')
     hub.sleep(1)
 
+    c = 0
     while True:
         hub.sleep(0)
         try:
@@ -232,3 +234,5 @@ if __name__ == '__main__':
             hub.sleep(3)
         except KeyboardInterrupt:
             sys.exit(0)
+        if (c := c + 1) == 10:
+            break

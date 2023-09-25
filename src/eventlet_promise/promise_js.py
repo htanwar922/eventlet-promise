@@ -13,9 +13,9 @@ import eventlet as hub
 from eventlet_promise.thenable import Thenable, raise_
 
 
-class Promise(Thenable):
+class PromiseJS(Thenable):
     """
-    A Promise represents the eventual result of an asynchronous operation.
+    A PromiseJS represents the eventual result of an asynchronous operation.
     The primary way of interacting with a promise is through its then method,
     which registers callbacks to receive either a promise's eventual value or
     the reason why the promise cannot be fulfilled.
@@ -49,8 +49,8 @@ class Promise(Thenable):
         - Call rejectFunc(reason) side-effect if it fails to complete.
         - Register callbacks to be called when the promise is resolved or rejected.
 
-    This class implements promises which are fulfilled or rejected like in JS.
-    `hub.sleep(0)` is needed to settle the promise.
+    Note: This class implements promises which are fulfilled or rejected like in JS.
+          `hub.sleep(0)` needs to be called to switch settling threads of the promise.
     """
     def __init__(self, executor : Callable[[Callable[[Any], None], Callable[[Any], None]], None]):
         super().__init__()
@@ -58,23 +58,23 @@ class Promise(Thenable):
         self.execute(executor)
 
     @staticmethod
-    def resolve(value : Any) -> 'Promise':
-        if isinstance(value, Promise):
+    def resolve(value : Any) -> 'PromiseJS':
+        if isinstance(value, PromiseJS):
             return value
-        return Promise(lambda resolveFunc, _: resolveFunc(value))
+        return PromiseJS(lambda resolveFunc, _: resolveFunc(value))
 
     @staticmethod
     def reject(reason : Any):
-        return Promise(lambda _, rejectFunc: rejectFunc(reason))
+        return PromiseJS(lambda _, rejectFunc: rejectFunc(reason))
 
     @staticmethod
-    def all(promises : List['Promise']):
+    def all(promises : List['PromiseJS']):
         def executor(resolveFunc, rejectFunc):
-            def chainExecute(promises : List['Promise'], results, resolveFunc, rejectFunc):
+            def chainExecute(promises : List['PromiseJS'], results, resolveFunc, rejectFunc):
                 assert promises, 'No promises to chain'
                 promises = list(promises)
-                promise_ : Promise = promises.pop(0)
-                nextPromise : Promise = promises[0] if promises else None
+                promise_ : PromiseJS = promises.pop(0)
+                nextPromise : PromiseJS = promises[0] if promises else None
                 promise_.then(lambda x, nextPromise=nextPromise:
                     nextPromise.waitExecute(chainExecute,
                             promises, results + [x],
@@ -83,18 +83,18 @@ class Promise(Thenable):
                     else resolveFunc(results + [x])
                 , rejectFunc)
             return hub.spawn(chainExecute, promises, [], resolveFunc, rejectFunc)
-        return Promise(executor)
+        return PromiseJS(executor)
 
     @staticmethod
-    def allSettled(promises : List['Promise']) -> 'Promise':
+    def allSettled(promises : List['PromiseJS']) -> 'PromiseJS':
         if not promises:
-            return Promise.resolve([])
+            return PromiseJS.resolve([])
         def executor(resolveFunc, rejectFunc):
-            def chainExecute(promises : List['Promise'], results, resolveFunc, rejectFunc):
+            def chainExecute(promises : List['PromiseJS'], results, resolveFunc, rejectFunc):
                 assert promises, 'No promises to chain'
                 promises = list(promises)
-                promise_ : Promise = promises.pop(0)
-                nextPromise : Promise = promises[0] if promises else None
+                promise_ : PromiseJS = promises.pop(0)
+                nextPromise : PromiseJS = promises[0] if promises else None
                 promise_.finally_(lambda x, nextPromise=nextPromise:
                     nextPromise.waitExecute(chainExecute,
                         promises, results + [{
@@ -109,31 +109,31 @@ class Promise(Thenable):
                     }])
                 )
             return hub.spawn(chainExecute, promises, [], resolveFunc, resolveFunc)
-        return Promise(executor)
+        return PromiseJS(executor)
 
     @staticmethod
-    def any(promises : List['Promise']):
+    def any(promises : List['PromiseJS']):
         promises = list(promises)
         def executor(resolveFunc, rejectFunc):
             for promise_ in promises:
-                promise_ : Promise
+                promise_ : PromiseJS
                 promise_.waitExecute(promise_.then, lambda x: resolveFunc(x, True))
             def anyFulfilled(settledValues):
                 for settledValue in settledValues:
                     if settledValue['status'] == 'fulfilled':
                         resolveFunc(settledValue['value'], True)
-                return rejectFunc(Exception(f'{Promise.any}: No promises resolved'))
-            Promise.allSettled(promises).then(anyFulfilled)     # safe
-        return Promise(executor)
+                return rejectFunc(Exception(f'{PromiseJS.any}: No promises resolved'))
+            PromiseJS.allSettled(promises).then(anyFulfilled)     # safe
+        return PromiseJS(executor)
 
     @staticmethod
     def race(promises : List):
         promises = list(promises)
         def executor(resolveFunc, rejectFunc):
             for promise_ in promises:
-                promise_ : Promise
+                promise_ : PromiseJS
                 promise_.waitExecute(promise_.finally_, lambda x: resolveFunc(x, True))
-        return Promise(executor)
+        return PromiseJS(executor)
 
     def then(self, onFulfilled : Callable[[Any], Any] = None, onRejected : Callable[[Any], Any] = None):
         """
@@ -144,19 +144,19 @@ class Promise(Thenable):
         try:
             if self.isFulfilled():
                 value = onFulfilled(self._value)
-                promise_ = Promise(lambda resolveFunc, _: self.waitExecute(resolveFunc, value))
+                promise_ = PromiseJS(lambda resolveFunc, _: self.waitExecute(resolveFunc, value))
                 # hub.sleep(0)
                 return promise_
             if self.isRejected():
                 value = onRejected(self._value)     # pylint: disable=assignment-from-no-return
-                promise_ = Promise(lambda _, rejectFunc: self.waitExecute(rejectFunc, value))
+                promise_ = PromiseJS(lambda _, rejectFunc: self.waitExecute(rejectFunc, value))
                 # hub.sleep(0)
                 return promise_
-            promise_ = Promise(None)        # either way, the promise is attached
+            promise_ = PromiseJS(None)        # either way, the promise is attached
             promise_.referenceTo(self, onFulfilled, onRejected)
             return promise_
         except Exception as error:          # pylint: disable=broad-except
-            return Promise.reject(error)
+            return PromiseJS.reject(error)
 
     def catch(self, onRejected : Callable[[Any], Any] = None):
         return self.then(None, onRejected)
@@ -167,15 +167,15 @@ class Promise(Thenable):
 
 def async_(func : Callable[..., Any]):
     """
-    Note: This decorator is not needed if the function returns a Promise.
+    Note: This decorator is not needed if the function returns a PromiseJS.
     Not yet tested.
     """
     def wrapper(*args, **kwargs):
-        return Promise.resolve(func(*args, **kwargs))
+        return PromiseJS.resolve(func(*args, **kwargs))
     return wrapper
 
 
-def await_(promise_ : Promise):
+def await_(promise_ : PromiseJS):
     """
     Note: Use only inside a separate coroutine.
     """
@@ -191,12 +191,12 @@ if __name__ == '__main__':
         hub.spawn_after(t1, lambda: print('\tResolving') or resolveFunc(t1))
         hub.spawn_after(t2, lambda: print('\tRejecting') or rejectFunc(TimeoutError("Timed out")))
 
-    # promise = Promise(None)
-    promise = Promise(executor_)
+    # promise = PromiseJS(None)
+    promise = PromiseJS(executor_)
     new_promise = promise.then()
-    attached = Promise.resolve(new_promise).then(lambda x: x + 1).then(lambda x: x + 1)
-    p1 = Promise.resolve(1).then(2).then()
-    p2 = Promise.reject(1).then(2, 2).then().then()
+    attached = PromiseJS.resolve(new_promise).then(lambda x: x + 1).then(lambda x: x + 1)
+    p1 = PromiseJS.resolve(1).then(2).then()
+    p2 = PromiseJS.reject(1).then(2, 2).then().then()
     p3 = p1.then()
 
     print(promise)
@@ -206,18 +206,19 @@ if __name__ == '__main__':
     print(p2)
     print(p3)
 
-    p_all = Promise.all([p1, p3, new_promise, promise])
+    p_all = PromiseJS.all([p1, p3, new_promise, promise])
     print('all', p_all)
-    p_settled = Promise.allSettled([p1, p2, p3, new_promise, promise])
+    p_settled = PromiseJS.allSettled([p1, p2, p3, new_promise, promise])
     print('allSettled', p_settled)
-    p_any = Promise.any([p2, promise.then(), new_promise, promise, p3.then()])
+    p_any = PromiseJS.any([p2, promise.then(), new_promise, promise, p3.then()])
     print('any', p_any)
-    p_race = Promise.race([new_promise.then(), new_promise.then(), p3.then()])
+    p_race = PromiseJS.race([new_promise.then(), new_promise.then(), p3.then()])
     print('race', p_race)
 
     print('\nFinished\n')
     hub.sleep(1)
 
+    c = 0
     while True:
         hub.sleep(0)
         try:
@@ -235,3 +236,5 @@ if __name__ == '__main__':
             hub.sleep(3)
         except KeyboardInterrupt:
             sys.exit(0)
+        if (c := c + 1) == 10:
+            break
