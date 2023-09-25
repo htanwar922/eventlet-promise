@@ -15,9 +15,9 @@ class LockList(list, Generic[_T]):
         pass
 
     def __init__(self, *args, **kwargs):
+        self._maxsize = kwargs.pop('maxsize') if 'maxsize' in kwargs else 0
         super().__init__(*args, **kwargs)
         self.__lock = hub.BoundedSemaphore(1)
-        self._maxsize = 0
 
     def maxSize(self):
         return self._maxsize
