@@ -16,7 +16,7 @@ from eventlet_promise.utils import LockList
 def raise_(reason):
     if isinstance(reason, Exception):
         raise reason
-    raise Exception(reason)     # pylint: disable=broad-exception-raised
+    # raise Exception(reason)     # pylint: disable=broad-exception-raised
 
 class Thenable(ABC):
     _counter = 0
@@ -32,6 +32,10 @@ class Thenable(ABC):
         self._callbacks = LockList()
         self._threads = LockList[Event]()
         self._observables = LockList()
+
+    def __del__(self):
+        for thread in self._threads:
+            thread.kill()
 
     def execute(self, executor):
         return executor(self._resolve, self._reject)

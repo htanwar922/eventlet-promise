@@ -49,7 +49,8 @@ class Promise(Thenable):
         - Call rejectFunc(reason) side-effect if it fails to complete.
         - Register callbacks to be called when the promise is resolved or rejected.
 
-    This class implements promises which are fulfilled or rejected ASAP.
+    This class implements promises which are fulfilled or rejected like in JS.
+    `hub.sleep(0)` is needed to settle the promise.
     """
     def __init__(self, executor : Callable[[Callable[[Any], None], Callable[[Any], None]], None]):
         super().__init__()
@@ -81,7 +82,6 @@ class Promise(Thenable):
                     ) if nextPromise
                     else resolveFunc(results + [x])
                 , rejectFunc)
-                hub.sleep(0)
             return hub.spawn(chainExecute, promises, [], resolveFunc, rejectFunc)
         return Promise(executor)
 
@@ -108,7 +108,6 @@ class Promise(Thenable):
                         'value' if promise_.isFulfilled() else 'reason': x
                     }])
                 )
-                hub.sleep(0)
             return hub.spawn(chainExecute, promises, [], resolveFunc, resolveFunc)
         return Promise(executor)
 
@@ -144,10 +143,14 @@ class Promise(Thenable):
         onRejected = onRejected if callable(onRejected) else raise_
         try:
             if self.isFulfilled():
-                promise_ = Promise.resolve(onFulfilled(self._value))
+                value = onFulfilled(self._value)
+                promise_ = Promise(lambda resolveFunc, _: self.waitExecute(resolveFunc, value))
+                # hub.sleep(0)
                 return promise_
             if self.isRejected():
-                promise_ = Promise.reject(onRejected(self._value))      # pylint: disable=assignment-from-no-return
+                value = onRejected(self._value)     # pylint: disable=assignment-from-no-return
+                promise_ = Promise(lambda _, rejectFunc: self.waitExecute(rejectFunc, value))
+                # hub.sleep(0)
                 return promise_
             promise_ = Promise(None)        # either way, the promise is attached
             promise_.referenceTo(self, onFulfilled, onRejected)
